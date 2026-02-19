@@ -97,7 +97,6 @@ Example generated commit:
 
 ## 🔮 Roadmap
 
-- [✔] Automatic type detection
 - [ ] Pull request creation
 - [ ] Custom config file (.smartcommitrc)
 - [ ] Team configuration support
