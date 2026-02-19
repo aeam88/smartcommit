@@ -97,9 +97,19 @@ Example generated commit:
 
 ## 🔮 Roadmap
 
+
+
+
 - [ ] Pull request creation
 - [ ] Custom config file (.smartcommitrc)
 - [ ] Team configuration support
+
+
+---
+
+## 🎥 Demo Video
+
+https://github.com/user-attachments/assets/d7d19417-3c72-4c5e-9a05-5d0e0931a3fd
 
 ---
 
