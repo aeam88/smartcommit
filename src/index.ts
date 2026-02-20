@@ -123,8 +123,32 @@ Do NOT include any extra text.
 
   const branchName = `${type}/${options.name}`;
 
+  console.log(chalk.blue("🔍 Checking if branch already exists..."));
+
+
+    const localBranches = await git.branchLocal();
+    const existsLocal = localBranches.all.includes(branchName);
+
+    const remoteBranches = await git.branch(["-r"]);
+    const existsRemote = remoteBranches.all.some((b) =>
+    b.replace("origin/", "") === branchName
+    );
+
+
+if (existsLocal) {
+  console.log(
+    chalk.yellow(`⚠️ Branch already exists locally. Switching to it...`)
+  );
+  await git.checkout(branchName);
+} else if (existsRemote) {
+  console.log(
+    chalk.yellow(`⚠️ Branch exists in origin. Creating tracking branch...`)
+  );
+  await git.checkout(["-b", branchName, `origin/${branchName}`]);
+} else {
   console.log(chalk.blue(`🚀 Creating branch ${branchName}`));
   await git.checkoutLocalBranch(branchName);
+}
 
   console.log(chalk.blue("🤖 Generating commit message..."));
 
