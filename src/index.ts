@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import simpleGit from "simple-git";
+import { simpleGit, SimpleGit } from "simple-git";
 import { execSync } from "child_process";
 import OpenAI from "openai";
 import dotenv from "dotenv";
@@ -9,20 +9,39 @@ import chalk from "chalk";
 
 dotenv.config();
 
+type CommitType = "feature" | "fix" | "chore" | "refactor" | "hotfix";
+
+interface AITypeResponse {
+  type: CommitType;
+  gitmoji: string;
+}
+
 const program = new Command();
-const git = simpleGit();
+const git: SimpleGit = simpleGit();
+
+if (!process.env.OPENAI_API_KEY) {
+  console.error(chalk.red("❌ OPENAI_API_KEY is missing in .env"));
+  process.exit(1);
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 program
-  .option("-t, --type <type>", "Override commit type: feature | fix | chore | refactor | hotfix")
+  .option(
+    "-t, --type <type>",
+    "Override commit type: feature | fix | chore | refactor | hotfix"
+  )
   .requiredOption("-n, --name <name>", "Branch name")
   .parse(process.argv);
 
-const options = program.opts();
+const options = program.opts<{
+  type?: CommitType;
+  name: string;
+}>();
 
-const detectTypeKeywords = (diff) => {
+const detectTypeKeywords = (diff: string): CommitType => {
   const lower = diff.toLowerCase();
   if (/bug|error|issue/.test(lower)) return "fix";
   if (/add|new|implement/.test(lower)) return "feature";
@@ -32,20 +51,25 @@ const detectTypeKeywords = (diff) => {
   return "chore";
 };
 
-const run = async () => {
+const run = async (): Promise<void> => {
   console.log(chalk.blue("📦 Adding changes..."));
   await git.add(".");
 
-  const diff = execSync("git diff --staged").toString();
+  const diff: string = execSync("git diff --staged").toString();
+
   if (!diff) {
     console.log(chalk.red("❌ No staged changes found."));
     process.exit(1);
   }
 
-  let type = options.type;
+  let type: CommitType | undefined = options.type;
   let gitmoji = "";
+
   if (!type) {
-    console.log(chalk.yellow("🤖 Detecting commit type and gitmoji automatically..."));
+    console.log(
+      chalk.yellow("🤖 Detecting commit type and gitmoji automatically...")
+    );
+
     try {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -57,50 +81,68 @@ You are a git assistant.
 Given a git diff, classify it into one of these types: feature, fix, refactor, chore, hotfix.
 Also choose an appropriate gitmoji for the commit.
 Return ONLY a JSON object with this format: {"type":"feature","gitmoji":"✨"}.
-Do NOT include any extra text.`
+Do NOT include any extra text.
+            `,
           },
           { role: "user", content: `Git diff:\n${diff}` },
         ],
       });
 
-      const response = completion.choices[0].message.content.trim();
-      const parsed = JSON.parse(response);
+      const response = completion.choices[0].message.content?.trim() || "";
 
-      type = parsed.type.toLowerCase();
-      gitmoji = parsed.gitmoji;
+      const parsed: AITypeResponse = JSON.parse(response);
 
-      if (!["feature","fix","chore","refactor","hotfix"].includes(type)) {
-        console.log(chalk.yellow("⚠️ AI returned invalid type, using keyword fallback."));
+      if (
+        ["feature", "fix", "chore", "refactor", "hotfix"].includes(
+          parsed.type
+        )
+      ) {
+        type = parsed.type;
+        gitmoji = parsed.gitmoji;
+      } else {
+        console.log(
+          chalk.yellow("⚠️ AI returned invalid type, using keyword fallback.")
+        );
         type = detectTypeKeywords(diff);
-        gitmoji = "";
       }
-
     } catch (error) {
-      console.log(chalk.yellow("⚠️ AI detection failed, using keyword fallback."));
+      console.log(
+        chalk.yellow("⚠️ AI detection failed, using keyword fallback.")
+      );
       type = detectTypeKeywords(diff);
-      gitmoji = "";
     }
 
-    console.log(chalk.green(`✅ Detected type: ${type}, gitmoji: ${gitmoji || "none"}`));
+    console.log(
+      chalk.green(`✅ Detected type: ${type}, gitmoji: ${gitmoji || "none"}`)
+    );
+  }
+
+  if (!type) {
+    type = "chore";
   }
 
   const branchName = `${type}/${options.name}`;
+
   console.log(chalk.blue(`🚀 Creating branch ${branchName}`));
   await git.checkoutLocalBranch(branchName);
 
   console.log(chalk.blue("🤖 Generating commit message..."));
+
   const completionMessage = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       {
         role: "system",
-        content: "Generate a concise conventional commit message, using gitmoji if available. Return only one line.",
+        content:
+          "Generate a concise conventional commit message, using gitmoji if available. Return only one line.",
       },
       { role: "user", content: `Git diff:\n${diff}` },
     ],
   });
 
-  const commitMessageAI = completionMessage.choices[0].message.content.trim();
+  const commitMessageAI =
+    completionMessage.choices[0].message.content?.trim() || "";
+
   const commitMessage = `${gitmoji} ${commitMessageAI}`.trim();
 
   console.log(chalk.green(`📝 Commit message: ${commitMessage}`));
@@ -113,4 +155,7 @@ Do NOT include any extra text.`
   console.log(chalk.green("✅ Done!"));
 };
 
-run();
+run().catch((err) => {
+  console.error(chalk.red("❌ Unexpected error:"), err);
+  process.exit(1);
+});
