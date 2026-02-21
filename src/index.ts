@@ -6,6 +6,8 @@ import { execSync } from "child_process";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import chalk from "chalk";
+import enquirer from "enquirer";
+const { prompt } = enquirer;
 
 dotenv.config();
 
@@ -126,29 +128,29 @@ Do NOT include any extra text.
   console.log(chalk.blue("🔍 Checking if branch already exists..."));
 
 
-    const localBranches = await git.branchLocal();
-    const existsLocal = localBranches.all.includes(branchName);
+  const localBranches = await git.branchLocal();
+  const existsLocal = localBranches.all.includes(branchName);
 
-    const remoteBranches = await git.branch(["-r"]);
-    const existsRemote = remoteBranches.all.some((b) =>
+  const remoteBranches = await git.branch(["-r"]);
+  const existsRemote = remoteBranches.all.some((b) =>
     b.replace("origin/", "") === branchName
+  );
+
+
+  if (existsLocal) {
+    console.log(
+      chalk.yellow(`⚠️ Branch already exists locally. Switching to it...`)
     );
-
-
-if (existsLocal) {
-  console.log(
-    chalk.yellow(`⚠️ Branch already exists locally. Switching to it...`)
-  );
-  await git.checkout(branchName);
-} else if (existsRemote) {
-  console.log(
-    chalk.yellow(`⚠️ Branch exists in origin. Creating tracking branch...`)
-  );
-  await git.checkout(["-b", branchName, `origin/${branchName}`]);
-} else {
-  console.log(chalk.blue(`🚀 Creating branch ${branchName}`));
-  await git.checkoutLocalBranch(branchName);
-}
+    await git.checkout(branchName);
+  } else if (existsRemote) {
+    console.log(
+      chalk.yellow(`⚠️ Branch exists in origin. Creating tracking branch...`)
+    );
+    await git.checkout(["-b", branchName, `origin/${branchName}`]);
+  } else {
+    console.log(chalk.blue(`🚀 Creating branch ${branchName}`));
+    await git.checkoutLocalBranch(branchName);
+  }
 
   console.log(chalk.blue("🤖 Generating commit message..."));
 
@@ -169,9 +171,36 @@ if (existsLocal) {
 
   const commitMessage = `${gitmoji} ${commitMessageAI}`.trim();
 
-  console.log(chalk.green(`📝 Commit message: ${commitMessage}`));
+  const { action } = await prompt<{ action: string }>({
+    type: "select",
+    name: "action",
+    message: `📝 AI Suggested Commit: ${chalk.green(commitMessage)}\nWhat would you like to do?`,
+    choices: [
+      { name: "commit", message: "✅ Accept and commit" },
+      { name: "edit", message: "✏️  Edit message" },
+      { name: "cancel", message: "❌ Cancel" },
+    ],
+  });
 
-  await git.commit(commitMessage);
+  let finalCommitMessage = commitMessage;
+
+  if (action === "cancel") {
+    console.log(chalk.yellow("Declined commit. Exiting."));
+    process.exit(0);
+  }
+
+  if (action === "edit") {
+    const { editedMessage } = await prompt<{ editedMessage: string }>({
+      type: "input",
+      name: "editedMessage",
+      message: "Edit your commit message:",
+      initial: commitMessage,
+    });
+    finalCommitMessage = editedMessage;
+  }
+
+  console.log(chalk.blue(`🚀 Committing: ${finalCommitMessage}`));
+  await git.commit(finalCommitMessage);
 
   console.log(chalk.blue("⬆️ Pushing..."));
   await git.push("origin", branchName, ["-u"]);
